@@ -1,0 +1,72 @@
+name: Build OREFRONT v3 2.5D Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Configure Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Locate OREFRONT Android project
+        shell: bash
+        run: |
+          path="$(find . -maxdepth 3 -type f -name settings.gradle -print -quit)"
+          if [ -z "$path" ]; then
+            echo "No settings.gradle found. Upload the extracted Android project files (not the ZIP)." >&2
+            exit 1
+          fi
+          directory="$(dirname "$path")"
+          echo "PROJECT_DIR=$directory" >> "$GITHUB_ENV"
+          echo "Building project at: $directory"
+
+      - name: Test game logic AI LAN and 2.5D camera
+        shell: bash
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          mkdir -p /tmp/orefront-v3-tests
+          javac -d /tmp/orefront-v3-tests \
+            app/src/main/java/com/student/orefront/GameCore.java \
+            app/src/main/java/com/student/orefront/LanRoom.java \
+            app/src/main/java/com/student/orefront/IsoCamera.java \
+            tests/*.java
+          for test in StrategySmokeTest SixPlayerLanTest BattleResultsTest EnhancedFeatureTest IsoCameraTest; do
+            java -cp /tmp/orefront-v3-tests "$test"
+          done
+
+      - name: Configure Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK packages
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Configure Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build Android debug APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle :app:assembleDebug --no-daemon
+
+      - name: Rename Android APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: cp app/build/outputs/apk/debug/app-debug.apk OREFRONT-v3-2.5D.apk
+
+      - name: Upload installable APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OREFRONT-v3-Android-APK
+          path: ${{ env.PROJECT_DIR }}/OREFRONT-v3-2.5D.apk
+          retention-days: 30
